@@ -51,7 +51,7 @@ with DAG(
         print(create_table_sql)
 
         create_table = AWSAthenaOperator(
-            task_id=f'create_{config['table']['name']}',
+            task_id='create_{}'.format(config['table']['name']),
             query=create_table_sql,
             database='data_lake_raw',
             output_location=variable['s3']['output'],
