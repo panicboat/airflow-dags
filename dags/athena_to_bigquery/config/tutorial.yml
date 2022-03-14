@@ -18,8 +18,8 @@ columns:
   - name: note
     type: string
   - name: population_total
-    type: int
+    type: bigint
   - name: population_male
-    type: int
+    type: bigint
   - name: population_female
-    type: int
+    type: bigint
