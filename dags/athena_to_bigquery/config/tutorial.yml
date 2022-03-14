@@ -1,0 +1,25 @@
+table:
+  name: c01
+  header: 1
+  separator: ","
+  encoding: UTF8
+  # location:
+columns:
+  - name: prefecture_code
+    type: string
+  - name: prefecture_name
+    type: string
+  - name: gen
+    type: string
+  - name: japanese_year
+    type: int
+  - name: western_year
+    type: int
+  - name: note
+    type: string
+  - name: population_total
+    type: int
+  - name: population_male
+    type: int
+  - name: population_female
+    type: int
