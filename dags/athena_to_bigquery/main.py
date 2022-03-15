@@ -50,8 +50,8 @@ with DAG(
     for yml in glob.glob('./dags/athena_to_bigquery/config/*'):
         config = ConfigLoader(yml).load()
         queryBuilder = QueryBuilder(config)
-        create_table_sql = queryBuilder.create_table_raw('s3://{}/'.format(variable['s3']['source']))
-        print(create_table_sql)
+        create_table_raw_sql = queryBuilder.create_table_raw('s3://{}/'.format(variable['s3']['source']))
+        print(create_table_raw_sql)
 
         copy_to_raw = S3CopyObjectOperator(
             task_id='copy_to_raw_{}'.format(config['table']['name']),
@@ -63,7 +63,7 @@ with DAG(
 
         create_table = AWSAthenaOperator(
             task_id='create_{}'.format(config['table']['name']),
-            query=create_table_sql,
+            query=create_table_raw_sql,
             database='data_lake_raw',
             output_location='s3://{}/'.format(variable['s3']['output']),
             sleep_time=30,
