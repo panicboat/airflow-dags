@@ -1,8 +1,8 @@
 table:
   name: c01
   header: 1
-  separator: ","
-  encoding: UTF8
+  delimiter: ","
+  encoding: SJIS
   # location:
 columns:
   - name: prefecture_code

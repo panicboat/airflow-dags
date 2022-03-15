@@ -2,23 +2,38 @@
 
 ## Variable
 
+### athena_to_bigquery
+
 ```json
 {
   "s3": {
-    "source": "s3://123456789012-data-lake-source/",
-    "raw": "s3://123456789012-data-lake-raw/",
-    "intermediate": "s3://123456789012-data-lake-intermediate/",
-    "output": "s3://123456789012-data-lake-outputs/"
+    "source": "123456789012-data-lake-source",
+    "raw": "123456789012-data-lake-raw",
+    "intermediate": "123456789012-data-lake-intermediate",
+    "output": "123456789012-data-lake-outputs"
   }
 }
 ```
+
+## Connections
+
+### aws_default
+
+```json
+{
+  "aws_access_key_id": "",
+  "aws_secret_access_key": "",
+  "region_name": "ap-northeast-1"
+}
+```
+
 
 ## config/table_name.yml
 
 ```yml
 table:
   header: 1
-  separator: ","
+  delimiter: ","
   encoding: "UTF8"
 columns:
   - name: COLUMN_NAME
