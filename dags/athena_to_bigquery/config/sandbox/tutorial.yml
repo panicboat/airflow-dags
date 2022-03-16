@@ -2,8 +2,8 @@ table:
   name: c01
   header: 1
   delimiter: ","
-  encoding: SJIS
-  # location:
+  encoding: UTF8
+  location: "sandbox/c01/"
 columns:
   - name: prefecture_code
     type: string

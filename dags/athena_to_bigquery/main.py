@@ -1,7 +1,6 @@
-import os, glob
+import os, glob, boto3
 
 from datetime import datetime, timedelta
-from textwrap import dedent
 
 # The DAG object; we'll need this to instantiate a DAG
 from airflow import DAG
@@ -9,6 +8,7 @@ from airflow.models import Variable
 
 # Operators; we need this to operate!
 from airflow.operators.bash import BashOperator
+from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
 from airflow.providers.amazon.aws.operators.athena import AWSAthenaOperator
 from airflow.providers.amazon.aws.operators.s3_copy_object import S3CopyObjectOperator
 
@@ -51,21 +51,77 @@ with DAG(
         config = ConfigLoader(yml).load()
         queryBuilder = QueryBuilder(config)
 
-        copy_to_raw = S3CopyObjectOperator(
-            task_id='copy_to_raw_{}'.format(config['table']['name']),
+        table_name = config['table']['name']
+        location = config['table']['location']
+        output = variable['s3']['output']
+
+        @dag.task(task_id='ready_{table_name}'.format(table_name=table_name))
+        def ready(source_bucket_name, source_bucket_key, dest_bucket_name, dest_bucket_key):
+            session = AwsBaseHook(aws_conn_id='aws_default', resource_type='s3').get_session()
+            for obj in session.resource('s3').Bucket(source_bucket_name).objects.filter(Prefix=source_bucket_key):
+                if 0 < len(os.path.basename(obj.key)):
+                    copy_source = { 'Bucket': source_bucket_name, 'Key': obj.key}
+                    session.resource('s3').meta.client.copy(copy_source, dest_bucket_name, '{dest_bucket_key}{basename}'.format(dest_bucket_key=dest_bucket_key, basename=os.path.basename(obj.key)))
+
+        copy_to_raw = ready(
             source_bucket_name=variable['s3']['source'],
-            source_bucket_key='c01.csv',
+            source_bucket_key='{location}{dt}'.format(location=location, dt="{{ ds }}"),
             dest_bucket_name=variable['s3']['raw'],
-            dest_bucket_key='c01.csv',
+            dest_bucket_key='{location}dt={dt}/'.format(location=location, dt="{{ ds }}"),
         )
 
-        create_raw = AWSAthenaOperator(
-            task_id='create_{}'.format(config['table']['name']),
-            query=queryBuilder.create_table_raw('s3://{}/'.format(variable['s3']['raw'])),
-            database='data_lake_raw',
-            output_location='s3://{}/'.format(variable['s3']['output']),
+        drop_raw = AWSAthenaOperator(
+            task_id='drop_raw_{table_name}'.format(table_name=table_name),
+            query=queryBuilder.drop_table(),
+            database=queryBuilder.get_db_name('r'),
+            output_location='s3://{output}/{location}'.format(output=output, location=location),
             sleep_time=30,
             max_tries=None,
         )
 
-        copy_to_raw >> create_raw
+        create_raw = AWSAthenaOperator(
+            task_id='create_raw_{table_name}'.format(table_name=table_name),
+            query=queryBuilder.create_table_raw('s3://{bucket}/{location}'.format(bucket=variable['s3']['raw'], location=location)),
+            database=queryBuilder.get_db_name('r'),
+            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            sleep_time=30,
+            max_tries=None,
+        )
+
+        msk_repaire_raw = AWSAthenaOperator(
+            task_id='msk_repaire_raw_{table_name}'.format(table_name=table_name),
+            query='MSCK REPAIR TABLE {table_name}'.format(table_name=table_name),
+            database=queryBuilder.get_db_name('r'),
+            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            sleep_time=30,
+            max_tries=None,
+        )
+
+        drop_intermediate = AWSAthenaOperator(
+            task_id='drop_intermediate_{table_name}'.format(table_name=table_name),
+            query=queryBuilder.drop_table(),
+            database=queryBuilder.get_db_name('i'),
+            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            sleep_time=30,
+            max_tries=None,
+        )
+
+        create_intermediate = AWSAthenaOperator(
+            task_id='create_intermediate_{table_name}'.format(table_name=table_name),
+            query=queryBuilder.create_table_intermediate('s3://{bucket}/{location}'.format(bucket=variable['s3']['intermediate'], location=location)),
+            database=queryBuilder.get_db_name('i'),
+            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            sleep_time=30,
+            max_tries=None,
+        )
+
+        msk_repaire_intermediate = AWSAthenaOperator(
+            task_id='msk_repaire__{table_name}'.format(table_name=table_name),
+            query='MSCK REPAIR TABLE {table_name}'.format(table_name=table_name),
+            database=queryBuilder.get_db_name('i'),
+            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            sleep_time=30,
+            max_tries=None,
+        )
+
+        copy_to_raw >> drop_raw >> create_raw >> msk_repaire_raw >> drop_intermediate >> create_intermediate >> msk_repaire_intermediate
