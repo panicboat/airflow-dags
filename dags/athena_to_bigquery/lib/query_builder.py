@@ -15,7 +15,7 @@ class QueryBuilder:
       'DROP TABLE IF EXISTS {table_name}'.format(table_name=self.config['table']['name'])
     )
 
-  def create_table_raw(self, location: str):
+  def create_table_raw(self, prefix: str):
     columns = []
     for column in self.config['columns']:
       columns.append(f"{column['name']} {column['type']}")
@@ -31,7 +31,7 @@ class QueryBuilder:
     query += '   "quoteChar"="\\\"" '
     query += ') '
     query += 'STORED AS TEXTFILE '
-    query += 'LOCATION \'{location}\' '.format(location=location)
+    query += 'LOCATION \'{prefix}\' '.format(prefix=prefix)
     query += 'TBLPROPERTIES ('
     query += '   \'has_encrypted_data\'=\'false\', '
     query += '   \'skip.header.line.count\'=\'{header}\', '.format(header=str(self.config['table']['header']))
@@ -41,7 +41,7 @@ class QueryBuilder:
     print(query)
     return query
 
-  def create_table_intermediate(self, partitions: list, dt: str, location: str):
+  def create_table_intermediate(self, partitions: list, dt: str, prefix: str):
     columns = []
     for column in self.config['columns']:
       columns.append(column['name'])
@@ -56,7 +56,7 @@ class QueryBuilder:
         partitioned_by.append('\'{col}\''.format(col=col))
       query += '  partitioned_by = ARRAY[{partitioned_by}], '.format(partitioned_by=','.join(partitioned_by))
 
-    query += '  external_location=\'{location}\' '.format(location=location)
+    query += '  external_location=\'{prefix}\' '.format(prefix=prefix)
     query += ') '
     query += 'AS '
     query += 'SELECT {columns} '.format(columns=','.join(columns))

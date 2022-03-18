@@ -10,6 +10,7 @@ from airflow.models import Variable
 from airflow.operators.bash import BashOperator
 from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
 from airflow.providers.amazon.aws.operators.athena import AWSAthenaOperator
+from airflow.providers.amazon.aws.operators.s3 import S3DeleteObjectsOperator
 from airflow.providers.amazon.aws.operators.s3_copy_object import S3CopyObjectOperator
 
 from athena_to_bigquery.lib.config_loader import ConfigLoader
@@ -53,17 +54,15 @@ with DAG(
         queryBuilder = QueryBuilder(config)
 
         table_name = config['table']['name']
-        location = config['table']['location']
+        prefix = config['table']['prefix']
         output = variable['s3']['output']
 
         partition = config['table']['partition']
+        # TODO: REPLACE and ADD switching implementation
         mode = config['table']['mode']
 
-        # TODO: パーティションの指定
-        # TODO: REPLACEとADDの切り替え実装
-
         @dag.task(task_id='ready_{table_name}'.format(table_name=table_name))
-        def ready(source_bucket_name, source_bucket_key, dest_bucket_name, dest_bucket_key):
+        def ready(source_bucket_name: str, source_bucket_key: str, dest_bucket_name: str, dest_bucket_key: str):
             session = AwsBaseHook(aws_conn_id='aws_default', resource_type='s3').get_session()
             for obj in session.resource('s3').Bucket(source_bucket_name).objects.filter(Prefix=source_bucket_key):
                 if 0 < len(os.path.basename(obj.key)):
@@ -72,27 +71,26 @@ with DAG(
 
         copy_to_raw = ready(
             source_bucket_name=variable['s3']['source'],
-            # ソースとなるデータは必ず Prefix + YYYY-MM-DD 形式にしてもらう
-            source_bucket_key='{location}{dt}/'.format(location=location, dt=dt),
+            source_bucket_key='{prefix}{dt}'.format(prefix=prefix, dt=dt),
             dest_bucket_name=variable['s3']['raw'],
-            dest_bucket_key='{location}dt={dt}/'.format(location=location, dt=dt),
+            dest_bucket_key='{prefix}dt={dt}/'.format(prefix=prefix, dt=dt),
         )
 
         drop_raw = AWSAthenaOperator(
             task_id='drop_raw_{table_name}'.format(table_name=table_name),
             query=queryBuilder.drop_table(),
             database=queryBuilder.db_name('r'),
-            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
             sleep_time=30,
             max_tries=None,
         )
 
-        raw_location = 's3://{bucket}/{location}'.format(bucket=variable['s3']['raw'], location=location)
+        raw_location = 's3://{bucket}/{prefix}'.format(bucket=variable['s3']['raw'], prefix=prefix)
         create_raw = AWSAthenaOperator(
             task_id='create_raw_{table_name}'.format(table_name=table_name),
             query=queryBuilder.create_table_raw(raw_location),
             database=queryBuilder.db_name('r'),
-            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
             sleep_time=30,
             max_tries=None,
         )
@@ -101,7 +99,7 @@ with DAG(
             task_id='msk_repaire_raw_{table_name}'.format(table_name=table_name),
             query='MSCK REPAIR TABLE {table_name}'.format(table_name=table_name),
             database=queryBuilder.db_name('r'),
-            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
             sleep_time=30,
             max_tries=None,
         )
@@ -110,17 +108,23 @@ with DAG(
             task_id='drop_intermediate_{table_name}'.format(table_name=table_name),
             query=queryBuilder.drop_table(),
             database=queryBuilder.db_name('i'),
-            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
             sleep_time=30,
             max_tries=None,
         )
 
-        intermediate_location = 's3://{bucket}/{location}'.format(bucket=variable['s3']['intermediate'], location=location)
+        delete_intermediate = S3DeleteObjectsOperator(
+            task_id='delete_intermediate_{table_name}'.format(table_name=table_name),
+            bucket=variable['s3']['intermediate'],
+            prefix=prefix
+        )
+
+        intermediate_location = 's3://{bucket}/{prefix}'.format(bucket=variable['s3']['intermediate'], prefix=prefix)
         create_intermediate = AWSAthenaOperator(
             task_id='create_intermediate_{table_name}'.format(table_name=table_name),
             query=queryBuilder.create_table_intermediate(partition, dt, intermediate_location),
             database=queryBuilder.db_name('i'),
-            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
             sleep_time=30,
             max_tries=None,
         )
@@ -129,9 +133,9 @@ with DAG(
             task_id='msk_repaire__{table_name}'.format(table_name=table_name),
             query='MSCK REPAIR TABLE {table_name}'.format(table_name=table_name),
             database=queryBuilder.db_name('i'),
-            output_location='s3://{output}/{location}'.format(output=output, location=location),
+            output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
             sleep_time=30,
             max_tries=None,
         )
 
-        copy_to_raw >> drop_raw >> create_raw >> msk_repaire_raw >> drop_intermediate >> create_intermediate >> msk_repaire_intermediate
+        copy_to_raw >> drop_raw >> create_raw >> msk_repaire_raw >> drop_intermediate >> delete_intermediate >> create_intermediate >> msk_repaire_intermediate

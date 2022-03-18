@@ -3,7 +3,7 @@ table:
   header: 1
   delimiter: ","
   encoding: UTF8
-  location: sandbox/c01/
+  prefix: sandbox/c01/
   partition: []
   mode: REPLACE
 columns:
