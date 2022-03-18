@@ -3,7 +3,9 @@ table:
   header: 1
   delimiter: ","
   encoding: UTF8
-  location: "sandbox/c01/"
+  location: sandbox/c01/
+  partition: []
+  mode: REPLACE
 columns:
   - name: prefecture_code
     type: string

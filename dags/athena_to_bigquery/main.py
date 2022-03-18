@@ -20,7 +20,7 @@ with DAG(
     # These args will get passed on to each operator
     # You can override them on a per-task basis during operator initialization
     default_args={
-        'depends_on_past': False,
+        'depends_on_past': True,
         'email': ['panicboat+airflow@gmail.com'],
         'email_on_failure': False,
         'email_on_retry': False,
@@ -46,6 +46,7 @@ with DAG(
     tags=['sandbox'],
 ) as dag:
 
+    dt = '{dt}'.format(dt="{{ ds }}")
     variable = Variable.get('athena_to_bigquery', deserialize_json=True)
     for yml in glob.glob('./dags/athena_to_bigquery/config/**/*.yml', recursive=True):
         config = ConfigLoader(yml).load()
@@ -54,6 +55,12 @@ with DAG(
         table_name = config['table']['name']
         location = config['table']['location']
         output = variable['s3']['output']
+
+        partition = config['table']['partition']
+        mode = config['table']['mode']
+
+        # TODO: パーティションの指定
+        # TODO: REPLACEとADDの切り替え実装
 
         @dag.task(task_id='ready_{table_name}'.format(table_name=table_name))
         def ready(source_bucket_name, source_bucket_key, dest_bucket_name, dest_bucket_key):
@@ -65,24 +72,26 @@ with DAG(
 
         copy_to_raw = ready(
             source_bucket_name=variable['s3']['source'],
-            source_bucket_key='{location}{dt}'.format(location=location, dt="{{ ds }}"),
+            # ソースとなるデータは必ず Prefix + YYYY-MM-DD 形式にしてもらう
+            source_bucket_key='{location}{dt}/'.format(location=location, dt=dt),
             dest_bucket_name=variable['s3']['raw'],
-            dest_bucket_key='{location}dt={dt}/'.format(location=location, dt="{{ ds }}"),
+            dest_bucket_key='{location}dt={dt}/'.format(location=location, dt=dt),
         )
 
         drop_raw = AWSAthenaOperator(
             task_id='drop_raw_{table_name}'.format(table_name=table_name),
             query=queryBuilder.drop_table(),
-            database=queryBuilder.get_db_name('r'),
+            database=queryBuilder.db_name('r'),
             output_location='s3://{output}/{location}'.format(output=output, location=location),
             sleep_time=30,
             max_tries=None,
         )
 
+        raw_location = 's3://{bucket}/{location}'.format(bucket=variable['s3']['raw'], location=location)
         create_raw = AWSAthenaOperator(
             task_id='create_raw_{table_name}'.format(table_name=table_name),
-            query=queryBuilder.create_table_raw('s3://{bucket}/{location}'.format(bucket=variable['s3']['raw'], location=location)),
-            database=queryBuilder.get_db_name('r'),
+            query=queryBuilder.create_table_raw(raw_location),
+            database=queryBuilder.db_name('r'),
             output_location='s3://{output}/{location}'.format(output=output, location=location),
             sleep_time=30,
             max_tries=None,
@@ -91,7 +100,7 @@ with DAG(
         msk_repaire_raw = AWSAthenaOperator(
             task_id='msk_repaire_raw_{table_name}'.format(table_name=table_name),
             query='MSCK REPAIR TABLE {table_name}'.format(table_name=table_name),
-            database=queryBuilder.get_db_name('r'),
+            database=queryBuilder.db_name('r'),
             output_location='s3://{output}/{location}'.format(output=output, location=location),
             sleep_time=30,
             max_tries=None,
@@ -100,16 +109,17 @@ with DAG(
         drop_intermediate = AWSAthenaOperator(
             task_id='drop_intermediate_{table_name}'.format(table_name=table_name),
             query=queryBuilder.drop_table(),
-            database=queryBuilder.get_db_name('i'),
+            database=queryBuilder.db_name('i'),
             output_location='s3://{output}/{location}'.format(output=output, location=location),
             sleep_time=30,
             max_tries=None,
         )
 
+        intermediate_location = 's3://{bucket}/{location}'.format(bucket=variable['s3']['intermediate'], location=location)
         create_intermediate = AWSAthenaOperator(
             task_id='create_intermediate_{table_name}'.format(table_name=table_name),
-            query=queryBuilder.create_table_intermediate('s3://{bucket}/{location}'.format(bucket=variable['s3']['intermediate'], location=location)),
-            database=queryBuilder.get_db_name('i'),
+            query=queryBuilder.create_table_intermediate(partition, dt, intermediate_location),
+            database=queryBuilder.db_name('i'),
             output_location='s3://{output}/{location}'.format(output=output, location=location),
             sleep_time=30,
             max_tries=None,
@@ -118,7 +128,7 @@ with DAG(
         msk_repaire_intermediate = AWSAthenaOperator(
             task_id='msk_repaire__{table_name}'.format(table_name=table_name),
             query='MSCK REPAIR TABLE {table_name}'.format(table_name=table_name),
-            database=queryBuilder.get_db_name('i'),
+            database=queryBuilder.db_name('i'),
             output_location='s3://{output}/{location}'.format(output=output, location=location),
             sleep_time=30,
             max_tries=None,
