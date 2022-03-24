@@ -2,7 +2,7 @@
 
 ## Variable
 
-### athena_to_bigquery
+### s3_to_dwh
 
 ```json
 {
@@ -35,6 +35,7 @@ table:
   header: 1
   delimiter: ","
   encoding: "UTF8"
+  partition: []
 columns:
   - name: COLUMN_NAME
     type: DATA_TYPE

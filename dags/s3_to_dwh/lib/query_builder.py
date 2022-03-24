@@ -56,6 +56,7 @@ class QueryBuilder:
         partitioned_by.append('\'{col}\''.format(col=col))
       query += '  partitioned_by = ARRAY[{partitioned_by}], '.format(partitioned_by=','.join(partitioned_by))
 
+    query += '  format = \'PARQUET\','
     query += '  external_location=\'{prefix}\' '.format(prefix=prefix)
     query += ') '
     query += 'AS '

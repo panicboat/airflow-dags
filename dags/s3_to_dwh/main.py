@@ -13,11 +13,11 @@ from airflow.providers.amazon.aws.operators.athena import AWSAthenaOperator
 from airflow.providers.amazon.aws.operators.s3 import S3DeleteObjectsOperator
 from airflow.providers.amazon.aws.operators.s3_copy_object import S3CopyObjectOperator
 
-from athena_to_bigquery.lib.config_loader import ConfigLoader
-from athena_to_bigquery.lib.query_builder import QueryBuilder
+from s3_to_dwh.lib.config_loader import ConfigLoader
+from s3_to_dwh.lib.query_builder import QueryBuilder
 
 with DAG(
-    'athena_to_bigquery',
+    's3_to_dwh',
     # These args will get passed on to each operator
     # You can override them on a per-task basis during operator initialization
     default_args={
@@ -48,8 +48,8 @@ with DAG(
 ) as dag:
 
     dt = '{dt}'.format(dt="{{ ds }}")
-    variable = Variable.get('athena_to_bigquery', deserialize_json=True)
-    for yml in glob.glob('./dags/athena_to_bigquery/config/**/*.yml', recursive=True):
+    variable = Variable.get('s3_to_dwh', deserialize_json=True)
+    for yml in glob.glob('./dags/s3_to_dwh/config/**/*.yml', recursive=True):
         config = ConfigLoader(yml).load()
         queryBuilder = QueryBuilder(config)
 
@@ -66,6 +66,8 @@ with DAG(
             session = AwsBaseHook(aws_conn_id='aws_default', resource_type='s3').get_session()
             for obj in session.resource('s3').Bucket(source_bucket_name).objects.filter(Prefix=source_bucket_key):
                 if 0 < len(os.path.basename(obj.key)):
+                    print('--------------')
+                    print(obj.key)
                     copy_source = { 'Bucket': source_bucket_name, 'Key': obj.key}
                     session.resource('s3').meta.client.copy(copy_source, dest_bucket_name, '{dest_bucket_key}{basename}'.format(dest_bucket_key=dest_bucket_key, basename=os.path.basename(obj.key)))
 
