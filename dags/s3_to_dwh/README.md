@@ -1,4 +1,4 @@
-# s3 to BigQuery
+# s3 to DWH
 
 ## Variable
 
@@ -7,10 +7,10 @@
 ```json
 {
   "s3": {
-    "source": "123456789012-data-lake-source",
-    "raw": "123456789012-data-lake-raw",
-    "intermediate": "123456789012-data-lake-intermediate",
-    "output": "123456789012-data-lake-outputs"
+    "source": "data-lake-123456789012-source",
+    "raw": "data-lake-123456789012-raw",
+    "intermediate": "data-lake-123456789012-intermediate",
+    "output": "data-lake-123456789012-outputs"
   }
 }
 ```

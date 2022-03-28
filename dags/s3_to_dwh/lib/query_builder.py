@@ -18,7 +18,7 @@ class QueryBuilder:
   def create_table_raw(self, prefix: str):
     columns = []
     for column in self.config['columns']:
-      columns.append(f"{column['name']} {column['type']}")
+      columns.append(f"{column['name']} string")
 
     query  = ''
     query += 'CREATE EXTERNAL TABLE IF NOT EXISTS {table_name} '.format(table_name=self.config['table']['name'])
@@ -44,7 +44,7 @@ class QueryBuilder:
   def create_table_intermediate(self, partitions: list, dt: str, prefix: str):
     columns = []
     for column in self.config['columns']:
-      columns.append(column['name'])
+      columns.append(self.__try_cast(column))
 
     query  = ''
     query += 'CREATE TABLE IF NOT EXISTS {table_name} '.format(table_name=self.config['table']['name'])
@@ -68,3 +68,10 @@ class QueryBuilder:
 
     print(query)
     return query
+
+  def __try_cast(self, column: dict):
+    col = 'IF(upper({name}) = \'NULL\', {default}, {name})'.format(name=column['name'], default=column.get('default', 'Null'))
+    if column['type'].lower() == 'string':
+      return '{col} as {name}'.format(col=col, name=column['name'])
+    else:
+      return 'try_cast({col} as {type}) as {name}'.format(col=col, type=column['type'], name=column['name'])
