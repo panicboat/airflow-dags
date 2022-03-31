@@ -27,8 +27,8 @@ class QueryBuilder:
     query += 'ROW FORMAT SERDE \'org.apache.hadoop.hive.serde2.OpenCSVSerde\' '
     query += 'WITH SERDEPROPERTIES ( '
     query += '   "field.delim" = "{delimiter}", '.format(delimiter=self.config['table']['delimiter'])
-    query += '   "escapeChar"="\\\\", '
-    query += '   "quoteChar"="\\\"" '
+    query += '   "escapeChar" = "{escapeChar}", '.format(escapeChar=self.config['table']['escape'])
+    query += '   "quoteChar" = "\\\"" '
     query += ') '
     query += 'STORED AS TEXTFILE '
     query += 'LOCATION \'{prefix}\' '.format(prefix=prefix)
@@ -44,7 +44,7 @@ class QueryBuilder:
   def create_table_intermediate(self, partitions: list, dt: str, prefix: str):
     columns = []
     for column in self.config['columns']:
-      columns.append(self.__try_cast(column))
+      columns.extend(self.__try_cast(column))
 
     query  = ''
     query += 'CREATE TABLE IF NOT EXISTS {table_name} '.format(table_name=self.config['table']['name'])
@@ -70,8 +70,26 @@ class QueryBuilder:
     return query
 
   def __try_cast(self, column: dict):
-    col = 'IF(upper({name}) = \'NULL\', {default}, {name})'.format(name=column['name'], default=column.get('default', 'Null'))
-    if column['type'].lower() == 'string':
-      return '{col} as {name}'.format(col=col, name=column['name'])
-    else:
-      return 'try_cast({col} as {type}) as {name}'.format(col=col, type=column['type'], name=column['name'])
+    if column['type'] == 'timestamp':
+      col = 'DATE_FORMAT(FROM_UNIXTIME(TO_UNIXTIME(CAST({name} || \' {timezone}\' AS TIMESTAMP)), \'Asia/Tokyo\'), \'%Y-%m-%d %H:%i:%s\')'.format(name=column['name'], timezone=column['timezone'])
+      return [
+        'IF(upper({name}) = \'NULL\', {default}, {col}) as {name}'.format(name=column['name'], default='Null', col=col)
+      ]
+
+    col = 'IF(upper({name}) = \'NULL\', {default}, {name})'.format(name=column['name'], default='Null')
+
+    if column['type'] == 'string':
+      return [
+        '{col} as {name}'.format(col=col, name=column['name'])
+      ]
+
+    try_cast_columns = [
+      'try_cast({col} as {type}) as {name}'.format(col=col, type=column['type'], name=column['name'])
+    ]
+
+    if 'hash' in column and column['hash']:
+      try_cast_columns.append(
+        'IF(upper({name}) = \'NULL\', {default}, TO_HEX(SHA256(TO_UTF8({name})))) as {name}_hash'.format(name=column['name'], default='Null')
+      )
+
+    return try_cast_columns

@@ -53,7 +53,7 @@ with DAG(
         data_interval_end = datetime.fromisoformat(end)
         return {
             'data_interval_start': str(data_interval_start.date()),
-            'data_interval_end': str(data_interval_end.date()),
+            'data_interval_end': str(data_interval_end.date() - timedelta(1)),
         }
 
     data_interval_date = data_interval_date(
