@@ -1,4 +1,4 @@
-import os, glob, boto3
+import os, glob, airflow, boto3
 
 from datetime import datetime, timedelta
 
@@ -62,7 +62,7 @@ with DAG(
     )
 
     variable = Variable.get('s3_to_dwh', deserialize_json=True)
-    for yml in glob.glob('./dags/s3_to_dwh/config/**/monthly/*.yml', recursive=True):
+    for yml in glob.glob('{dags_folder}/s3_to_dwh/config/**/monthly/*.yml'.format(dags_folder=airflow.settings.DAGS_FOLDER), recursive=True):
         config = ConfigLoader(yml).load()
         queryBuilder = QueryBuilder(config)
 
