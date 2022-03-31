@@ -42,7 +42,7 @@ with DAG(
     },
     description='s3 to dwh DAG',
     schedule_interval='0 0 1 * *',
-    start_date=datetime(2022, 3, 1),
+    start_date=datetime(2022, 4, 1),
     catchup=False,
     tags=['sre'],
 ) as dag:
