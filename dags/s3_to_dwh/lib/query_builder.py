@@ -4,7 +4,9 @@ class QueryBuilder:
     self.config = config
     self.database = {
       'r': 'data_lake_raw',
-      'i': 'data_lake_intermediate'
+      'i': 'data_lake_intermediate',
+      's': 'data_lake_structuralization',
+      'f': 'data_lake_finalize',
     }
 
   def db_name(self, key: str):
@@ -15,7 +17,7 @@ class QueryBuilder:
       'DROP TABLE IF EXISTS {table_name}'.format(table_name=self.config['table']['name'])
     )
 
-  def create_table_raw(self, prefix: str):
+  def create_table(self, prefix: str):
     columns = []
     for column in self.config['columns']:
       columns.append(f"{column['name']} string")
@@ -41,7 +43,7 @@ class QueryBuilder:
     print(query)
     return query
 
-  def create_table_intermediate(self, partitions: list, dt: str, prefix: str):
+  def ctas_parquet(self, source: str, partitions: list, dt: str, prefix: str):
     columns = []
     for column in self.config['columns']:
       columns.extend(self.__try_cast(column))
@@ -61,10 +63,28 @@ class QueryBuilder:
     query += ') '
     query += 'AS '
     query += 'SELECT {columns} '.format(columns=','.join(columns))
-    query += 'FROM {database}.{table_name} '.format(database=self.database['r'], table_name=self.config['table']['name'])
+    query += 'FROM {source}.{table_name} '.format(source=source, table_name=self.config['table']['name'])
 
     if len(partitions) < 1:
       query += 'WHERE dt = \'{dt}\''.format(dt=dt)
+
+    print(query)
+    return query
+
+  def ctas(self, source: str, prefix: str):
+    columns = []
+    for column in self.config['columns']:
+      columns.append(column['name'])
+
+    query  = ''
+    query += 'CREATE TABLE IF NOT EXISTS {table_name} '.format(table_name=self.config['table']['name'])
+    query += 'WITH ( '
+    query += '  format = \'PARQUET\','
+    query += '  external_location=\'{prefix}\' '.format(prefix=prefix)
+    query += ') '
+    query += 'AS '
+    query += 'SELECT {columns} '.format(columns=','.join(columns))
+    query += 'FROM {source}.{table_name} '.format(source=source, table_name=self.config['table']['name'])
 
     print(query)
     return query

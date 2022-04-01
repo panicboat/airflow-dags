@@ -7,11 +7,12 @@ from airflow import DAG
 from airflow.models import Variable
 
 # Operators; we need this to operate!
-from airflow.operators.bash import BashOperator
 from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
 from airflow.providers.amazon.aws.operators.athena import AWSAthenaOperator
 from airflow.providers.amazon.aws.operators.s3 import S3DeleteObjectsOperator
 from airflow.providers.amazon.aws.operators.s3_copy_object import S3CopyObjectOperator
+from airflow.providers.google.cloud.transfers.s3_to_gcs import S3ToGCSOperator
+from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
 
 from s3_to_dwh.lib.config_loader import ConfigLoader
 from s3_to_dwh.lib.query_builder import QueryBuilder
@@ -67,6 +68,7 @@ with DAG(
         queryBuilder = QueryBuilder(config)
 
         table_name = config['table']['name']
+        table_origin_name = config['table']['origin']
         prefix = config['table']['prefix']
         output = variable['s3']['output']
 
@@ -83,12 +85,16 @@ with DAG(
                     copy_source = { 'Bucket': source_bucket_name, 'Key': obj.key}
                     session.resource('s3').meta.client.copy(copy_source, dest_bucket_name, '{dest_bucket_key}{basename}'.format(dest_bucket_key=dest_bucket_key, basename=os.path.basename(obj.key)))
 
-        copy_to_raw = ready(
+        ready_raw = ready(
             source_bucket_name=variable['s3']['source'],
             source_bucket_key='{prefix}{dt}'.format(prefix=prefix, dt="{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}"),
             dest_bucket_name=variable['s3']['raw'],
             dest_bucket_key='{prefix}dt={dt}/'.format(prefix=prefix, dt="{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}"),
         )
+
+        # --------------------------------------------------------------
+        # RAW
+        # --------------------------------------------------------------
 
         drop_raw = AWSAthenaOperator(
             task_id='drop_raw_{table_name}'.format(table_name=table_name),
@@ -102,7 +108,7 @@ with DAG(
         raw_location = 's3://{bucket}/{prefix}'.format(bucket=variable['s3']['raw'], prefix=prefix)
         create_raw = AWSAthenaOperator(
             task_id='create_raw_{table_name}'.format(table_name=table_name),
-            query=queryBuilder.create_table_raw(raw_location),
+            query=queryBuilder.create_table(raw_location),
             database=queryBuilder.db_name('r'),
             output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
             sleep_time=30,
@@ -118,6 +124,16 @@ with DAG(
             max_tries=None,
         )
 
+        # --------------------------------------------------------------
+        # INTERMEDIATE
+        # --------------------------------------------------------------
+
+        ready_intermediate = S3DeleteObjectsOperator(
+            task_id='ready_intermediate_{table_name}'.format(table_name=table_name),
+            bucket=variable['s3']['intermediate'],
+            prefix=prefix
+        )
+
         drop_intermediate = AWSAthenaOperator(
             task_id='drop_intermediate_{table_name}'.format(table_name=table_name),
             query=queryBuilder.drop_table(),
@@ -127,16 +143,15 @@ with DAG(
             max_tries=None,
         )
 
-        delete_intermediate = S3DeleteObjectsOperator(
-            task_id='delete_intermediate_{table_name}'.format(table_name=table_name),
-            bucket=variable['s3']['intermediate'],
-            prefix=prefix
-        )
-
         intermediate_location = 's3://{bucket}/{prefix}'.format(bucket=variable['s3']['intermediate'], prefix=prefix)
         create_intermediate = AWSAthenaOperator(
             task_id='create_intermediate_{table_name}'.format(table_name=table_name),
-            query=queryBuilder.create_table_intermediate(partition, "{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}", intermediate_location),
+            query=queryBuilder.ctas_parquet(
+                source=queryBuilder.db_name('r'),
+                partitions=partition,
+                dt="{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}",
+                prefix=intermediate_location
+            ),
             database=queryBuilder.db_name('i'),
             output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
             sleep_time=30,
@@ -152,4 +167,68 @@ with DAG(
             max_tries=None,
         )
 
-        data_interval_date >> copy_to_raw >> drop_raw >> create_raw >> msk_repaire_raw >> drop_intermediate >> delete_intermediate >> create_intermediate >> msk_repaire_intermediate
+        # --------------------------------------------------------------
+        # STRUCTURALIZATION
+        # --------------------------------------------------------------
+
+
+        # --------------------------------------------------------------
+        # FINALIZER for AWS
+        # --------------------------------------------------------------
+        ready_finalize = S3DeleteObjectsOperator(
+            task_id='ready_finalize_{table_name}'.format(table_name=table_name),
+            bucket=variable['s3']['finalize'],
+            prefix=prefix
+        )
+
+        drop_finalize = AWSAthenaOperator(
+            task_id='drop_finalize_{table_name}'.format(table_name=table_name),
+            query=queryBuilder.drop_table(),
+            database=queryBuilder.db_name('f'),
+            output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
+            sleep_time=30,
+            max_tries=None,
+        )
+
+        finalize_location = 's3://{bucket}/{prefix}'.format(bucket=variable['s3']['finalize'], prefix=prefix)
+        create_finalize = AWSAthenaOperator(
+            task_id='create_finalize_{table_name}'.format(table_name=table_name),
+            query=queryBuilder.ctas(
+                source=queryBuilder.db_name('i'),
+                prefix=finalize_location
+            ),
+            database=queryBuilder.db_name('f'),
+            output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
+            sleep_time=30,
+            max_tries=None,
+        )
+
+        # --------------------------------------------------------------
+        #
+        # --------------------------------------------------------------
+        s3_to_gcs = S3ToGCSOperator(
+            task_id='s3_to_gcs_{table_name}'.format(table_name=table_name),
+            bucket=variable['s3']['finalize'],
+            prefix=prefix,
+            dest_gcs='gs://nausicaa-dev/',
+            replace=True,
+            gzip=False,
+        )
+
+        gcs_to_bq = GCSToBigQueryOperator(
+            task_id='gcs_to_bq_{table_name}'.format(table_name=table_name),
+            bucket='nausicaa-dev',
+            source_objects=['{prefix}*'.format(prefix=prefix)],
+            source_format='PARQUET',
+            compression='GZIP',
+            destination_project_dataset_table='point_dev.{table_name}'.format(table_name=table_origin_name),
+            write_disposition='WRITE_TRUNCATE'
+        )
+
+        (
+            data_interval_date
+            >> ready_raw >> drop_raw >> create_raw >> msk_repaire_raw
+            >> ready_intermediate >> drop_intermediate >> create_intermediate >> msk_repaire_intermediate
+            >> ready_finalize >> drop_finalize >> create_finalize
+            >> s3_to_gcs >> gcs_to_bq
+        )
