@@ -11,6 +11,7 @@ from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
 from airflow.providers.amazon.aws.operators.athena import AWSAthenaOperator
 from airflow.providers.amazon.aws.operators.s3 import S3DeleteObjectsOperator
 from airflow.providers.amazon.aws.operators.s3_copy_object import S3CopyObjectOperator
+from airflow.providers.google.cloud.operators.gcs import GCSDeleteObjectsOperator
 from airflow.providers.google.cloud.transfers.s3_to_gcs import S3ToGCSOperator
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
 
@@ -73,7 +74,7 @@ with DAG(
         output = variable['s3']['output']
 
         partition = config['table']['partition']
-        # TODO: REPLACE and ADD switching implementation
+        # TODO: WRITE_TRUNCATE and WRITE_APPEND switching implementation
         mode = config['table']['mode']
 
         @dag.task(task_id='ready_{table_name}'.format(table_name=table_name))
@@ -195,7 +196,7 @@ with DAG(
             task_id='create_finalize_{table_name}'.format(table_name=table_name),
             query=queryBuilder.ctas(
                 source=queryBuilder.db_name('i'),
-                prefix=finalize_location
+                location='{location}{dt}/'.format(location=finalize_location, dt="{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}")
             ),
             database=queryBuilder.db_name('f'),
             output_location='s3://{output}/{prefix}'.format(output=output, prefix=prefix),
@@ -206,23 +207,29 @@ with DAG(
         # --------------------------------------------------------------
         #
         # --------------------------------------------------------------
+        ready_gcs = GCSDeleteObjectsOperator(
+            task_id='ready_gcs_{table_name}'.format(table_name=table_name),
+            bucket_name=variable['gcs']['destination'],
+            prefix='{prefix}{dt}/'.format(prefix=prefix, dt="{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}"),
+        )
+
         s3_to_gcs = S3ToGCSOperator(
             task_id='s3_to_gcs_{table_name}'.format(table_name=table_name),
             bucket=variable['s3']['finalize'],
-            prefix=prefix,
-            dest_gcs='gs://nausicaa-dev/',
+            prefix='{prefix}{dt}/'.format(prefix=prefix, dt="{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}"),
+            dest_gcs='gs://{gcs_bucket}/'.format(gcs_bucket=variable['gcs']['destination']),
             replace=True,
             gzip=False,
         )
 
         gcs_to_bq = GCSToBigQueryOperator(
             task_id='gcs_to_bq_{table_name}'.format(table_name=table_name),
-            bucket='nausicaa-dev',
-            source_objects=['{prefix}*'.format(prefix=prefix)],
+            bucket='{gcs_bucket}'.format(gcs_bucket=variable['gcs']['destination']),
+            source_objects=['{prefix}{dt}/*'.format(prefix=prefix, dt="{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}"),],
             source_format='PARQUET',
             compression='GZIP',
             destination_project_dataset_table='point_dev.{table_name}'.format(table_name=table_origin_name),
-            write_disposition='WRITE_TRUNCATE'
+            write_disposition=mode,
         )
 
         (
@@ -230,5 +237,5 @@ with DAG(
             >> ready_raw >> drop_raw >> create_raw >> msk_repaire_raw
             >> ready_intermediate >> drop_intermediate >> create_intermediate >> msk_repaire_intermediate
             >> ready_finalize >> drop_finalize >> create_finalize
-            >> s3_to_gcs >> gcs_to_bq
+            >> ready_gcs >> s3_to_gcs >> gcs_to_bq
         )

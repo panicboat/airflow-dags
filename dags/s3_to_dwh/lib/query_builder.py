@@ -71,7 +71,7 @@ class QueryBuilder:
     print(query)
     return query
 
-  def ctas(self, source: str, prefix: str):
+  def ctas(self, source: str, location: str):
     columns = []
     for column in self.config['columns']:
       columns.append(column['name'])
@@ -80,7 +80,7 @@ class QueryBuilder:
     query += 'CREATE TABLE IF NOT EXISTS {table_name} '.format(table_name=self.config['table']['name'])
     query += 'WITH ( '
     query += '  format = \'PARQUET\','
-    query += '  external_location=\'{prefix}\' '.format(prefix=prefix)
+    query += '  external_location=\'{location}\' '.format(location=location)
     query += ') '
     query += 'AS '
     query += 'SELECT {columns} '.format(columns=','.join(columns))
