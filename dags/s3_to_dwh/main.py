@@ -228,7 +228,7 @@ with DAG(
             source_objects=['{prefix}{dt}/*'.format(prefix=prefix, dt="{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}"),],
             source_format='PARQUET',
             compression='GZIP',
-            destination_project_dataset_table='point_dev.{table_name}'.format(table_name=table_origin_name),
+            destination_project_dataset_table='{dataset}.{table_name}'.format(dataset=variable['bigquery']['dataset'], table_name=table_origin_name),
             write_disposition=mode,
         )
 

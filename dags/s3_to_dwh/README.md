@@ -16,6 +16,9 @@
   },
   "gcs": {
     "destination" : ""
+  },
+  "bigquery": {
+    "dataset": ""
   }
 }
 ```
@@ -72,7 +75,7 @@ table:
   encoding: UTF8
   prefix: prefix/path/
   partition: []
-  mode: REPLACE
+  mode: WRITE_TRUNCATE
 columns:
   - name: id
     type: int
