@@ -72,10 +72,6 @@ class QueryBuilder:
     return query
 
   def ctas(self, source: str, location: str):
-    columns = []
-    for column in self.config['columns']:
-      columns.append(column['name'])
-
     query  = ''
     query += 'CREATE TABLE IF NOT EXISTS {table_name} '.format(table_name=self.config['table']['name'])
     query += 'WITH ( '
@@ -83,8 +79,7 @@ class QueryBuilder:
     query += '  external_location=\'{location}\' '.format(location=location)
     query += ') '
     query += 'AS '
-    query += 'SELECT {columns} '.format(columns=','.join(columns))
-    query += 'FROM {source}.{table_name} '.format(source=source, table_name=self.config['table']['name'])
+    query += 'SELECT * FROM {source}.{table_name} '.format(source=source, table_name=self.config['table']['name'])
 
     print(query)
     return query
