@@ -18,7 +18,9 @@
     "destination" : ""
   },
   "bigquery": {
-    "dataset": ""
+    "project": "",
+    "dataset": "",
+    "location": "asia-northeast1"
   }
 }
 ```
