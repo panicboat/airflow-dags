@@ -64,6 +64,7 @@ with DAG(
     )
 
     variable = Variable.get('s3_to_dwh', deserialize_json=True)
+    common = Variable.get('common', deserialize_json=True)
     for yml in glob.glob('{dags_folder}/s3_to_dwh/config/**/monthly/*.yml'.format(dags_folder=airflow.settings.DAGS_FOLDER), recursive=True):
         config = ConfigLoader(yml).load()
         queryBuilder = QueryBuilder(config)
@@ -74,6 +75,7 @@ with DAG(
         output = variable['s3']['output']
 
         partition = config['table']['partition']
+        dataset = '{dataset}_{env}'.format(dataset=config['dataset'], env=common['env'])
         # TODO: WRITE_TRUNCATE and WRITE_APPEND switching implementation
         mode = config['table']['mode']
 
@@ -228,7 +230,7 @@ with DAG(
             source_objects=['{prefix}{dt}/*'.format(prefix=prefix, dt="{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}"),],
             source_format='PARQUET',
             compression='GZIP',
-            destination_project_dataset_table='{project}.{dataset}.{table_name}'.format(project=variable['bigquery']['project'], dataset=variable['bigquery']['dataset'], table_name=table_origin_name),
+            destination_project_dataset_table='{project}.{dataset}.{table_name}'.format(project=variable['bigquery']['project'], dataset=dataset, table_name=table_origin_name),
             write_disposition=mode,
             location=variable['bigquery']['location'],
         )

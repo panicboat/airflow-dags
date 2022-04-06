@@ -2,6 +2,14 @@
 
 ## Variable
 
+### common
+
+```json
+{
+  "env": ""
+}
+```
+
 ### s3_to_dwh
 
 ```json
@@ -19,19 +27,8 @@
   },
   "bigquery": {
     "project": "",
-    "dataset": "",
     "location": "asia-northeast1"
   }
-}
-```
-
-### slack
-
-```json
-{
-  "webhook_url": "",
-  "username": "",
-  "channel": ""
 }
 ```
 
