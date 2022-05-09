@@ -227,6 +227,7 @@ with DAG(
         gcs_to_bq = GCSToBigQueryOperator(
             task_id='gcs_to_bq_{table_name}'.format(table_name=table_name),
             bucket='{gcs_bucket}'.format(gcs_bucket=variable['gcs']['destination']),
+            autodetect=True,
             source_objects=['{prefix}{dt}/*'.format(prefix=prefix, dt="{{ ti.xcom_pull(task_ids='data_interval_date')['data_interval_end'] }}"),],
             source_format='PARQUET',
             compression='GZIP',

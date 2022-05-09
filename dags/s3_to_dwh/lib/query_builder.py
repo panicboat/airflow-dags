@@ -86,7 +86,7 @@ class QueryBuilder:
 
   def __try_cast(self, column: dict):
     if column['type'] == 'timestamp':
-      col = 'DATE_FORMAT(FROM_UNIXTIME(TO_UNIXTIME(CAST({name} || \' {timezone}\' AS TIMESTAMP)), \'Asia/Tokyo\'), \'%Y-%m-%d %H:%i:%s\')'.format(name=column['name'], timezone=column['timezone'])
+      col = 'FROM_UNIXTIME(TO_UNIXTIME(CAST({name} || \' {timezone}\' AS TIMESTAMP)))'.format(name=column['name'], timezone=column['timezone'])
       return [
         'IF(upper({name}) = \'NULL\', {default}, {col}) as {name}'.format(name=column['name'], default='Null', col=col)
       ]
