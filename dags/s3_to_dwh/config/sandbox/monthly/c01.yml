@@ -1,11 +1,13 @@
+dataset: sandbox
 table:
   name: c01
   header: 1
   delimiter: ","
+  escape: "\\\"\\\""
   encoding: UTF8
   prefix: sandbox/c01/
   partition: []
-  mode: REPLACE
+  mode: WRITE_TRUNCATE
 columns:
   - name: prefecture_code
     type: string
